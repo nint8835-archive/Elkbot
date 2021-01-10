@@ -4,7 +4,7 @@ go 1.15
 
 require (
 	github.com/bwmarrin/discordgo v0.22.0
-	github.com/elastic/go-elasticsearch/v8 v8.0.0-20201229214741-2366c2514674
+	github.com/elastic/go-elasticsearch/v7 v7.10.0
 	github.com/joho/godotenv v1.3.0
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/nint8835/parsley v0.0.0-20201224020611-dee14cbf9618
