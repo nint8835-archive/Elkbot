@@ -62,7 +62,7 @@ func _InsertIndex(data map[string]interface{}, indexName string, documentID stri
 
 	resp, err := req.Do(context.Background(), esClient)
 	if err != nil {
-		return err
+		return fmt.Errorf("error making elasticsearch request: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -103,9 +103,7 @@ func _IngestMessage(message *discordgo.Message) error {
 
 	err := _InsertIndex(documentBody, "messages", message.ID)
 	if err != nil {
-		if err != nil {
-			return fmt.Errorf("error ingesting message: %w", err)
-		}
+		return fmt.Errorf("error ingesting message: %w", err)
 	}
 
 	for _, attachment := range message.Attachments {
@@ -154,6 +152,7 @@ func main() {
 	log.Debug().Msg("Parser created")
 
 	parser.NewCommand("ingest", "Ingest a backlog of messages from a certain channel.", _IngestHandler)
+	parser.NewCommand("ingestall", "Ingest a backlog of messages from all channels.", _IngestAllHandler)
 
 	log.Debug().Msg("Opening Discord connection")
 	err = session.Open()
@@ -175,6 +174,42 @@ func main() {
 	}
 }
 
+func _IngestMessageArray(messages []*discordgo.Message) error {
+	for _, historyMessage := range messages {
+		err := _IngestMessage(historyMessage)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func _IngestAllHandler(message *discordgo.MessageCreate, args struct{}) {
+	if message.Author.ID != "106162668032802816" {
+		log.Warn().Str("author_id", message.Author.ID).Msg("User does not have access to this command")
+		return
+	}
+
+	channels, err := session.GuildChannels(message.GuildID)
+	if err != nil {
+		log.Error().Err(err).Msg("Error fetching channels")
+	}
+
+	for _, channel := range channels {
+		session.ChannelMessageSend(message.ChannelID, fmt.Sprintf("Ingesting %s", channel.Name))
+
+		err := _PaginateMessages(channel.ID, _IngestMessageArray)
+
+		if err != nil {
+			log.Error().Err(err).Msg("Error ingesting messages")
+			session.ChannelMessageSend(message.ChannelID, fmt.Sprintf("```\n%s\n```", err.Error()))
+		} else {
+			session.ChannelMessageSend(message.ChannelID, "Channel messages successfully ingested.")
+		}
+	}
+	session.ChannelMessageSend(message.ChannelID, "All channels processed!")
+}
+
 type _IngestArgs struct {
 	ChannelID string `description:"ID of the channel to ingest logs from."`
 }
@@ -185,15 +220,7 @@ func _IngestHandler(message *discordgo.MessageCreate, args _IngestArgs) {
 		return
 	}
 
-	err := _PaginateMessages(args.ChannelID, func(messages []*discordgo.Message) error {
-		for _, historyMessage := range messages {
-			err := _IngestMessage(historyMessage)
-			if err != nil {
-				return err
-			}
-		}
-		return nil
-	})
+	err := _PaginateMessages(args.ChannelID, _IngestMessageArray)
 
 	if err != nil {
 		log.Error().Err(err).Msg("Error ingesting messages")
